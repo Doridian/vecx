@@ -1,6 +1,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #include "laser.h"
 
@@ -22,13 +23,19 @@ int main()
 
     LaserInitialize(&state);
 
-    LaserRenderLine(&state, p0, p1);
-    LaserRenderLine(&state, p1, p2);
-    LaserRenderLine(&state, p2, p3);
-    LaserRenderLine(&state, p3, p0);
+    while (1) {
+        LaserRenderLine(&state, p0, p1);
+        LaserRenderLine(&state, p1, p2);
+        LaserRenderLine(&state, p2, p3);
+        LaserRenderLine(&state, p3, p0);
 
-    LaserRenderLine(&state, p4, p5);
-    LaserRenderLine(&state, p5, p6);
-    LaserRenderLine(&state, p6, p7);
-    LaserRenderLine(&state, p7, p4);
+        LaserRenderLine(&state, p4, p5);
+        LaserRenderLine(&state, p5, p6);
+        LaserRenderLine(&state, p6, p7);
+        LaserRenderLine(&state, p7, p4);
+
+        LaserRenderFrame(&state);
+
+        usleep(1000);
+    }
 }

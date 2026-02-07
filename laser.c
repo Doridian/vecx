@@ -1,10 +1,14 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <unistd.h>
 
+#include "helios_dac/sdk/cpp/HeliosDac.h"
 #include "laser.h"
+#include "vecx.h"
 
-#define LASER_FULL_POWER 4095
+#define LASER_FULL_POWER 0x7F
+#define LASER_MAX_COORDINATE 0xFFF
 #define LASER_CYCLES_TO_OFF 4
 #define LASER_CYCLES_TO_ON 4
 #define LASER_CYCLES_TO_STABLE_ON 2
@@ -12,16 +16,43 @@
 #define LASER_MAX_DISTANCE_PER_CYCLE_ON 5
 #define LASER_MAX_DISTANCE_PER_CYCLE_OFF 10
 
-static LaserState LaserStateZero = { 0 };
+static HeliosDac helios;
+// We target 50 Hz, we use a rate of 20 Kpts, so we can send at most 400 points per frame...
+#define FRAME_SIZE (128 * 1024)
+static HeliosPoint frame[FRAME_SIZE];
+static volatile int frameIndex = 0;
+static int frameOver = 0;
+static double laserScaleFactor = 1.0;
 
-void RenderPoint(Point point, bool on)
+LaserState LaserStateZero = { 0 };
+
+void RenderPoint(LaserState *state, Point point, unsigned char color)
 {
-    long multiplier = on ? 1 : 0;
+    if (frameIndex >= FRAME_SIZE) {
+        frameOver++;
+        return;
+    }
+    frame[frameIndex].x = point.x;
+    frame[frameIndex].y = point.y;
+    frame[frameIndex].r = 0;
+    frame[frameIndex].g = 0;
+    frame[frameIndex].b = (((double)color) / (double)255.0) * (double)LASER_FULL_POWER;
+    frameIndex++;
+}
 
-    printf("s=%ld,%ld,%ld,%ld,%ld,%ld\n",
-           (long)point.x, (long)point.y,
-           LASER_FULL_POWER * multiplier, LASER_FULL_POWER * multiplier,
-           multiplier, multiplier);
+void LaserRenderFrame(LaserState *state)
+{
+    if (frameIndex == 0) {
+        return;
+    }
+    if (helios.GetStatus(0) == 1) {
+        helios.WriteFrame(0, state->rate, HELIOS_FLAGS_SINGLE_MODE|HELIOS_FLAGS_DONT_BLOCK, frame, frameIndex);
+        if (frameOver > 0) {
+            fprintf(stderr, "Warning: frame overrun! %d frames were lost.\n", frameOver);
+        }   
+    }
+    frameIndex = 0;
+    frameOver = 0;
 }
 
 void LaserStateSetRate(LaserState *state, long rate)
@@ -29,30 +60,27 @@ void LaserStateSetRate(LaserState *state, long rate)
     if (state->rate == rate) {
         return;
     }
-
-    printf("r=%ld\n", rate);
-    (*state).rate = rate;
+    state->rate = rate;
 }
 
 void RenderPause(LaserState *state, long cycles)
 {
     int i;
     for (i = 0; i < cycles; i++) {
-        RenderPoint(state->position, state->on);
+        RenderPoint(state, state->position, state->color);
     }
 }
 
-void LaserStateSetOn(LaserState *state, bool on)
+void LaserStateSetOn(LaserState *state, unsigned char color)
 {
     int i;
 
-    if (state->on == on) {
+    if ((state->color > 0) == (color > 0)) {
         return;
     }
 
-    (*state).on = on;
-
-    if (on) {
+    state->color = color;
+    if (color > 0) {
         RenderPause(state, LASER_CYCLES_TO_ON);
     } else {
         RenderPause(state, LASER_CYCLES_TO_OFF);
@@ -64,7 +92,7 @@ void LaserStateSetPosition(LaserState *state, Point position)
     int i;
 
     // Look up the maximum move distance for current state.
-    float max_distance = state->on ? LASER_MAX_DISTANCE_PER_CYCLE_ON : LASER_MAX_DISTANCE_PER_CYCLE_OFF;
+    float max_distance = (state->color > 0) ? LASER_MAX_DISTANCE_PER_CYCLE_ON : LASER_MAX_DISTANCE_PER_CYCLE_OFF;
 
     // Determine the distance to the point.
     double distance = DistanceFromPointToPoint(state->position, position);
@@ -76,20 +104,23 @@ void LaserStateSetPosition(LaserState *state, Point position)
         Point intermediate = PointZero;
         intermediate.x = state->position.x + (i * moveX);
         intermediate.y = state->position.y + (i * moveY);
-        RenderPoint(intermediate, state->on);
+        RenderPoint(state, intermediate, state->color);
     }
 
     (*state).position = position;
-    RenderPause(state, state->on ? LASER_CYCLES_TO_STABLE_ON : LASER_MAX_DISTANCE_PER_CYCLE_OFF);
+    RenderPause(state, (state->color > 0) ? LASER_CYCLES_TO_STABLE_ON : LASER_CYCLES_TO_STABLE_OFF);
 }
 
-void LaserRenderLine(LaserState *state, Point p0, Point p1)
+void LaserRenderLine(LaserState *state, Point p0, Point p1, unsigned char color)
 {
+    p0 = PointScale(p0, laserScaleFactor);
+    p1 = PointScale(p1, laserScaleFactor);
+
     // Switch the laser off if the line is discontinuous.
-    if (!PointEqualToPoint(state->position, p0, 0.1)) {
-        LaserStateSetOn(state, false);
+    if (!PointEqualToPoint(state->position, p0, 1)) {
+        LaserStateSetOn(state, 0);
         LaserStateSetPosition(state, p0);
-        LaserStateSetOn(state, true);
+        LaserStateSetOn(state, color);
     }
 
     // Draw the line.
@@ -99,6 +130,18 @@ void LaserRenderLine(LaserState *state, Point p0, Point p1)
 void LaserInitialize(LaserState *state)
 {
     LaserStateSetRate(state, 20000);
-    printf("e=1\n");
+
+    laserScaleFactor = (double)LASER_MAX_COORDINATE / (double)std::max(ALG_MAX_Y, ALG_MAX_X);
+
+    int numDevices = helios.OpenDevices();
+	printf("Found %d DACs:\n", numDevices);
+	for (int j = 0; j < numDevices; j++)
+	{
+		char name[32];
+		if (helios.GetName(j,   name) == HELIOS_SUCCESS)
+			printf("- %s: type: %s, FW: %d\n", name, helios.GetIsUsb(j) ? "USB" : "IDN/Network", helios.GetFirmwareVersion(j));
+		else
+			printf("- (unknown dac): USB?: %d, FW %d\n", helios.GetIsUsb(j), helios.GetFirmwareVersion(j));
+	}
 }
 

@@ -4,16 +4,15 @@
 #include "graphics.h"
 
 typedef struct {
-
     long rate;
     Point position;
-    bool on;
-  
+    unsigned char color;
 } LaserState;
 
-static LaserState LaserStateZero;
+extern LaserState LaserStateZero;
 
 void LaserInitialize(LaserState *state);
-void LaserRenderLine(LaserState *state, Point p0, Point p1);
+void LaserRenderLine(LaserState *state, Point p0, Point p1, unsigned char color);
+void LaserRenderFrame(LaserState *state);
 
 #endif // __LASER_H

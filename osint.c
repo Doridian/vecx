@@ -1,8 +1,9 @@
 
 #include "SDL.h"
 #include "SDL_image.h"
-#include "SDL_gfxPrimitives.h"
-#include "SDL_rotozoom.h"
+#include "SDL_video.h"
+#include "SDL2_gfxPrimitives.h"
+#include "SDL2_rotozoom.h"
 
 #include "e8910.h"
 #include "laser.h"
@@ -10,9 +11,9 @@
 #include "vecx.h"
 
 #define EMU_TIMER 20 /* the emulators heart beats at 20 milliseconds */
-#define LASER_SCALE 0.1
 
-static SDL_Surface *screen = NULL;
+static SDL_Window *window = NULL;
+static SDL_Renderer *screen = NULL;
 static SDL_Surface *overlay_original = NULL;
 static SDL_Surface *overlay = NULL;
 
@@ -23,13 +24,12 @@ static long offy;
 static LaserState laser_state = LaserStateZero;
 
 void osint_addline(Point p0, Point p1, unsigned char color){
-	LaserRenderLine(&laser_state,
-					PointScale(p0, LASER_SCALE),
-					PointScale(p1, LASER_SCALE));
+	LaserRenderLine(&laser_state, p0, p1, color);
 }
 
 void osint_render(void){
-	SDL_FillRect(screen, NULL, 0);
+	LaserRenderFrame(&laser_state);
+	/*SDL_FillRect(screen, NULL, 0);
 
 	int v;
 	for(v = 0; v < vector_draw_cnt; v++){
@@ -45,7 +45,7 @@ void osint_render(void){
 		SDL_Rect dest_rect = {offx, offy, 0, 0};
 		SDL_BlitSurface(overlay, NULL, screen, &dest_rect);
 	}
-	SDL_Flip(screen);
+	SDL_RenderPresent(screen);*/
 }
 
 static char *romfilename = "rom.dat";
@@ -76,11 +76,11 @@ static void init(){
 }
 
 void resize(int width, int height){
-	long sclx, scly;
+	/*long sclx, scly;
 
 	long screenx = width;
 	long screeny = height;
-	screen = SDL_SetVideoMode(screenx, screeny, 0, SDL_SWSURFACE | SDL_RESIZABLE);
+	SDL_CreateWindowAndRenderer(screenx, screeny, SDL_WINDOW_RESIZABLE, &window, &screen);
 
 	sclx = ALG_MAX_X / screen->w;
 	scly = ALG_MAX_Y / screen->h;
@@ -95,7 +95,7 @@ void resize(int width, int height){
 			SDL_FreeSurface(overlay);
 		double overlay_scale = ((double)ALG_MAX_X / (double)scl_factor) / (double)overlay_original->w;
 		overlay = zoomSurface(overlay_original, overlay_scale, overlay_scale, 0);
-	}
+	}*/
 }
 
 static void readevents(){
@@ -105,9 +105,9 @@ static void readevents(){
 			case SDL_QUIT:
 				exit(EXIT_SUCCESS);
 				break;
-			case SDL_VIDEORESIZE:
-				resize(e.resize.w, e.resize.h);
-				break;
+			//case SDL_VIDEORESIZE:
+			//	resize(e.resize.w, e.resize.h);
+			//	break;
 			case SDL_KEYDOWN:
 				switch(e.key.keysym.sym){
 					case SDLK_ESCAPE:

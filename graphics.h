@@ -4,13 +4,11 @@
 #include <stdbool.h>
 
 typedef struct {
-
     double x;
     double y;
-  
 } Point;
 
-static Point PointZero;
+extern Point PointZero;
 
 Point PointMake(double x, double y);
 Point PointScale(Point point, double scale);

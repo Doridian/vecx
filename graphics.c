@@ -2,7 +2,7 @@
 
 #include "graphics.h"
 
-static Point PointZero = { 0 };
+Point PointZero = { 0 };
 
 Point PointMake(double x, double y)
 {
